@@ -1031,6 +1031,12 @@ constexpr int kTrimmedFaceIntegralMaxDepth = 10;
 // switching these two knobs for the duration of the call.
 thread_local double g_trimmed_face_rel_tol = kTrimmedFaceIntegralRelTol;
 thread_local int g_trimmed_face_max_depth = kTrimmedFaceIntegralMaxDepth;
+// Origin of the divergence-theorem integrand (1/3) (p - o) . n. For a closed surface the volume does not depend on
+// o, but the QUADRATURE error does: a face whose trim boundary is a polyline (chord error e) is wrong by about
+// |p - o| * e * perimeter, so integrating about the world origin makes a body 1e5 units from it wrong by whole
+// percent (measured: a box with a pierced hole at x = 1e5 came out 57% low). VolumeOfSealedSolid() sets o to the
+// centre of the body's bounding box for the duration of the call; Volume() keeps the world origin.
+thread_local double g_volume_origin[3] = {0.0, 0.0, 0.0};
 
 // Adaptive refinement of TriangleQuad7() over (a, b, c): compares the
 // single-triangle quadrature against the sum of the same rule applied to
@@ -1318,8 +1324,18 @@ double Brep::VolumeOfSealedSolid() const {
     ~Knobs() {
       g_trimmed_face_rel_tol = kTrimmedFaceIntegralRelTol;
       g_trimmed_face_max_depth = kTrimmedFaceIntegralMaxDepth;
+      g_volume_origin[0] = g_volume_origin[1] = g_volume_origin[2] = 0.0;
     }
   } knobs;
+  {
+    ON_BoundingBox bb;
+    if (brep_.GetBoundingBox(bb) && bb.IsValid()) {
+      const ON_3dPoint c = bb.Center();
+      g_volume_origin[0] = c.x;
+      g_volume_origin[1] = c.y;
+      g_volume_origin[2] = c.z;
+    }
+  }
   return VolumeImpl(true);
 }
 
@@ -1352,7 +1368,7 @@ double Brep::VolumeImpl(bool allow_analytic) const {
         throw std::runtime_error("dino8::kernel::Brep::Volume: Ev1Der failed on face " + std::to_string(i));
       }
       const ON_3dVector n = ON_CrossProduct(su, sv);
-      return (p.x * n.x + p.y * n.y + p.z * n.z) / 3.0;
+      return ((p.x - g_volume_origin[0]) * n.x + (p.y - g_volume_origin[1]) * n.y + (p.z - g_volume_origin[2]) * n.z) / 3.0;
     };
     if (is_cap || FaceCoversWholeDomain(i)) {
       if (!s) {
