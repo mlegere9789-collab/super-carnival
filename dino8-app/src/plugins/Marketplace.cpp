@@ -212,6 +212,19 @@ bool Marketplace::LoadFrom(const std::string& source, std::string& error) {
   return true;
 }
 
+bool Marketplace::LoadRegistry(const std::string& location, std::vector<RegistrySourceResult>& results,
+                                std::vector<std::string>& notes, std::string& error) {
+  MarketplaceIndex merged;
+  if (!LoadRegistryAuto(location, merged, results, notes, error)) return false;
+  index_ = std::move(merged);
+  source_ = location;
+  return true;
+}
+
+std::string Marketplace::DefaultRegistryPath() {
+  return (fs::path(app::ConfigDirectory()) / "plugin-registry.json").string();
+}
+
 bool Marketplace::InstallById(app::Application& app, const std::string& id, std::string& error) {
   std::vector<std::string> chain;
   return InstallByIdChecked(app, id, chain, error);

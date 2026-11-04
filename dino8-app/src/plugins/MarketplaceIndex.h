@@ -38,6 +38,11 @@ struct MarketplaceEntry {
 
   std::string sha256;            // optional, only meaningful with download_url
   std::string library_filename;  // optional override for the installed file's name
+
+  // Which index_name this entry came from. Empty for an entry read straight
+  // from one index; filled by MergeIndexes/LoadRegistryAuto so a merged
+  // catalogue still says where each entry was found.
+  std::string origin;
 };
 
 struct MarketplaceIndex {
@@ -129,5 +134,58 @@ bool LoadIndexAuto(const std::string& source, MarketplaceIndex& out, std::string
 // LoadIndexFromUrl and, for a downloaded (non-bundled) entry, by
 // plugins::InstallEntry (Marketplace.cpp).
 bool FetchUrlToTempFile(const std::string& url, std::string& out_path, std::string& error);
+
+// ---- Registry: a catalogue OF indexes --------------------------------------
+// A registry file (plugin-index/SCHEMA.md, "Registry") lists any number of
+// index sources - local paths or http(s) URLs, each one a plain index file
+// as parsed by ParseIndex. LoadRegistryAuto loads every listed index
+// independently and merges them into ONE catalogue (MergeIndexes), so a
+// user points the marketplace at a single registry and sees every listed
+// third-party index together, instead of typing each path/URL by hand.
+struct MarketplaceRegistry {
+  int schema_version = 0;
+  std::string registry_name;
+  std::vector<std::string> sources;  // as written in the file (not yet resolved)
+};
+
+// Outcome of loading ONE index listed by a registry.
+struct RegistrySourceResult {
+  std::string source;      // resolved (see ResolveRegistrySource)
+  bool ok = false;
+  std::string error;       // set when !ok
+  std::string index_name;  // set when ok
+  size_t plugin_count = 0; // set when ok
+};
+
+// Parses registry JSON: {"schema_version":1, "registry_name":"...",
+// "indexes":[ "path-or-url", {"source":"path-or-url"}, ...]}. false (with
+// `error`) on malformed JSON, schema_version != 1, a missing/empty
+// "indexes" array, or an element that is neither a string nor an object with
+// a non-empty "source". A plain index file (it has "plugins", not
+// "indexes") is refused rather than silently read as an empty registry.
+bool ParseRegistry(const std::string& json_text, MarketplaceRegistry& out, std::string& error);
+
+// Resolves a registry-listed source against the location of the registry
+// that listed it: an absolute path or http(s) URL is returned as is; a
+// relative path resolves against the registry file's directory (or, for a
+// registry fetched from a URL, against that URL up to its last '/').
+std::string ResolveRegistrySource(const std::string& registry_location, const std::string& source);
+
+// Merges indexes into one catalogue. When two indexes list the same plug-in
+// id, the HIGHER version (CompareVersions) wins; on an exact tie the
+// earlier index in the list wins. `notes` (optional) receives one line per
+// displaced duplicate. Each surviving entry's `origin` is set to the
+// index_name it came from. The result's index_name is `merged_name`.
+MarketplaceIndex MergeIndexes(const std::vector<MarketplaceIndex>& indexes, const std::string& merged_name,
+                               std::vector<std::string>* notes = nullptr);
+
+// Loads the registry at `location` (local path or http(s) URL), then every
+// index it lists. An index that cannot be fetched or fails ParseIndex is
+// SKIPPED and reported in `results` (ok=false) - one bad third-party index
+// never hides the others - but if NO listed index loads, returns false with
+// `error`. `notes` as for MergeIndexes.
+bool LoadRegistryAuto(const std::string& location, MarketplaceIndex& merged,
+                       std::vector<RegistrySourceResult>& results, std::vector<std::string>& notes,
+                       std::string& error);
 
 }  // namespace dino8::plugins

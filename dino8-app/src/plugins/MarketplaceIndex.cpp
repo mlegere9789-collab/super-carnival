@@ -282,4 +282,146 @@ bool LoadIndexAuto(const std::string& source, MarketplaceIndex& out, std::string
   return IsHttpUrl(source) ? LoadIndexFromUrl(source, out, error) : LoadIndexFromFile(source, out, error);
 }
 
+bool ParseRegistry(const std::string& json_text, MarketplaceRegistry& out, std::string& error) {
+  json::Value root;
+  if (!json::Parse(json_text, root, error)) return false;
+  if (!root.IsObject()) {
+    error = "registry root is not a JSON object";
+    return false;
+  }
+  const json::Value& sv = root["schema_version"];
+  const int schema_version = sv.type == json::Value::Type::Number ? static_cast<int>(sv.number) : 0;
+  if (schema_version != 1) {
+    error = "unsupported registry schema_version " + std::to_string(schema_version) +
+            " (this build reads schema_version 1 - see plugin-index/SCHEMA.md)";
+    return false;
+  }
+  const json::Value& idxs = root["indexes"];
+  if (!idxs.IsArray()) {
+    error = root["plugins"].IsArray()
+                ? "this file is a plug-in index, not a registry (it has \"plugins\", not \"indexes\") - use PluginMarketplaceIndex"
+                : "registry has no \"indexes\" array";
+    return false;
+  }
+  if (idxs.array.empty()) {
+    error = "registry lists no indexes";
+    return false;
+  }
+  MarketplaceRegistry reg;
+  reg.schema_version = schema_version;
+  reg.registry_name = root["registry_name"].AsString("Untitled Plugin Registry");
+  for (size_t i = 0; i < idxs.array.size(); ++i) {
+    const json::Value& e = idxs.array[i];
+    std::string src;
+    if (e.IsString()) src = e.string;
+    else if (e.IsObject()) src = e["source"].AsString();
+    if (src.empty()) {
+      error = "indexes[" + std::to_string(i) + "] is neither a source string nor an object with a \"source\"";
+      return false;
+    }
+    reg.sources.push_back(src);
+  }
+  out = std::move(reg);
+  return true;
+}
+
+std::string ResolveRegistrySource(const std::string& registry_location, const std::string& source) {
+  if (IsHttpUrl(source)) return source;
+  if (IsHttpUrl(registry_location)) {
+    // A relative entry in a URL registry is relative to that URL's directory.
+    if (!source.empty() && source[0] == '/') {
+      const size_t scheme = registry_location.find("://");
+      const size_t host_end = registry_location.find('/', scheme + 3);
+      return (host_end == std::string::npos ? registry_location : registry_location.substr(0, host_end)) + source;
+    }
+    const size_t slash = registry_location.find_last_of('/');
+    return registry_location.substr(0, slash + 1) + source;
+  }
+  fs::path sp(source);
+  if (sp.is_absolute()) return source;
+  return (fs::path(registry_location).parent_path() / sp).generic_string();
+}
+
+MarketplaceIndex MergeIndexes(const std::vector<MarketplaceIndex>& indexes, const std::string& merged_name,
+                               std::vector<std::string>* notes) {
+  MarketplaceIndex out;
+  out.schema_version = 1;
+  out.index_name = merged_name;
+  for (const MarketplaceIndex& idx : indexes) {
+    if (out.updated.empty() || idx.updated > out.updated) out.updated = idx.updated;
+    for (MarketplaceEntry e : idx.plugins) {
+      e.origin = idx.index_name;
+      auto it = std::find_if(out.plugins.begin(), out.plugins.end(),
+                             [&](const MarketplaceEntry& x) { return x.id == e.id; });
+      if (it == out.plugins.end()) {
+        out.plugins.push_back(std::move(e));
+        continue;
+      }
+      if (CompareVersions(e.version, it->version) > 0) {
+        if (notes)
+          notes->push_back(e.id + ": " + e.version + " from \"" + e.origin + "\" supersedes " + it->version + " from \"" +
+                           it->origin + "\"");
+        *it = std::move(e);
+      } else if (notes) {
+        notes->push_back(e.id + ": " + e.version + " from \"" + e.origin + "\" ignored (keeping " + it->version +
+                         " from \"" + it->origin + "\")");
+      }
+    }
+  }
+  return out;
+}
+
+bool LoadRegistryAuto(const std::string& location, MarketplaceIndex& merged,
+                       std::vector<RegistrySourceResult>& results, std::vector<std::string>& notes,
+                       std::string& error) {
+  results.clear();
+  notes.clear();
+  std::string text;
+  if (IsHttpUrl(location)) {
+    std::string tmp;
+    if (!FetchUrlToTempFile(location, tmp, error)) return false;
+    std::ifstream in(tmp, std::ios::binary);
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    text = ss.str();
+    in.close();
+    std::error_code ec;
+    fs::remove(tmp, ec);
+  } else {
+    std::ifstream in(location, std::ios::binary);
+    if (!in) {
+      error = "could not open " + location;
+      return false;
+    }
+    std::ostringstream ss;
+    ss << in.rdbuf();
+    text = ss.str();
+  }
+  MarketplaceRegistry reg;
+  if (!ParseRegistry(text, reg, error)) return false;
+
+  std::vector<MarketplaceIndex> loaded;
+  for (const std::string& raw : reg.sources) {
+    RegistrySourceResult r;
+    r.source = ResolveRegistrySource(location, raw);
+    MarketplaceIndex idx;
+    std::string e;
+    if (LoadIndexAuto(r.source, idx, e)) {
+      r.ok = true;
+      r.index_name = idx.index_name;
+      r.plugin_count = idx.plugins.size();
+      loaded.push_back(std::move(idx));
+    } else {
+      r.error = e;
+    }
+    results.push_back(std::move(r));
+  }
+  if (loaded.empty()) {
+    error = "none of the " + std::to_string(reg.sources.size()) + " index(es) listed by the registry could be loaded";
+    return false;
+  }
+  merged = MergeIndexes(loaded, reg.registry_name, &notes);
+  return true;
+}
+
 }  // namespace dino8::plugins
