@@ -264,6 +264,48 @@ a spurious failure, since by its own turn it is no longer installed at all).
 The panel's "Uninstall All" button sits next to "Verify All", disabled under
 the same "nothing installed" condition.
 
+## Registry: one catalogue over many indexes
+
+A *registry* is a second, tiny JSON file that lists index sources, so a user
+(or a studio) subscribes to one location instead of typing every index's
+path or URL by hand:
+
+```jsonc
+{
+  "schema_version": 1,                 // required, must be exactly 1
+  "registry_name": "Studio Registry",  // optional
+  "indexes": [                         // required, non-empty
+    "first.json",                      // a string, or {"source": "..."}
+    { "source": "https://example.org/dino/second.json" },
+    "/abs/path/third.json"
+  ]
+}
+```
+
+`PluginMarketplaceRegistry <path-or-http(s)-URL>` (or, with no argument,
+`<config>/plugin-registry.json`) loads every listed index and merges them
+into the one loaded catalogue, so `PluginMarketplaceList`, `...Install`,
+`...CheckUpdates`, `...UpdateAll` and `...Uninstall` all work on it unchanged.
+
+* A relative source resolves against the registry's own directory (or, for a
+  registry fetched from a URL, against that URL's directory); an absolute
+  path or an http(s) URL is used as is.
+* An index that cannot be fetched or fails the normal index validation is
+  **skipped and reported**; one bad third-party index never hides the others.
+  If *no* listed index loads, the command fails and the previously loaded
+  catalogue is left exactly as it was.
+* When two indexes list the same plug-in `id`, the numerically higher
+  `version` wins (`1.10.0` beats `1.2.0`); on an exact tie the earlier-listed
+  index wins. Each displaced listing is reported. `PluginMarketplaceList`
+  tags a merged entry with `[from "<index_name>"]`.
+* A plain index handed to `PluginMarketplaceRegistry`, or a registry handed to
+  `PluginMarketplaceIndex`, is refused with a specific message.
+* The registry is re-read on every load, so a host that republishes its
+  files changes what the same registry URL yields the next time it is loaded
+  (the update checker then sees the new versions). Nothing is pushed: the
+  client only fetches what a user named, and this repository operates no
+  registry host.
+
 ## Writing your own index
 
 An index is just a JSON file - host it anywhere reachable over HTTPS (or
