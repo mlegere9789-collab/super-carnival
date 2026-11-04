@@ -1,25 +1,25 @@
-a025338f829373c0d	infra: shards+per-feature files	1793813072
-a1166e7f0dfe93497	boolean sealing coverage	1793813072
-a1461cbbcbfc614b8	countersink/counterbore holes	1793813072
-aedddd486c8dc172a	multi-rim fillets	1793813072
-a70bbcc3c71982e67	round-trip/export audit	1793813072
-a0b1293194e9ad025	G2 curved adjacent	1793813072
-a68fa029929efa733	SubD/ToNURBS hardening	1793813072
-af62dab854ede528d	QC reviewer kernel	1793813072
-a96db4853e2683023	QC reviewer app	1793813072
-a098ae0d4ae741bb0	cat: offsetting+shelling	1793813072
-ae218ab20a1caf404	cat: sweep/loft/extrude	1793813072
-a9fe744a29b22d5c0	cat: blending	1793813072
-a666ec8f2a94100e8	cat: feature ops	1793813072
-af78da953e7552ee8	cat: local/direct edit	1793813072
-a7c75718f75e83f2b	cat: topology	1793813072
-aa16c30092cfd74d8	cat: boolean	1793813072
-a536c0c386c02d484	cat: transforms/patterns/split	1793813072
-a0272e941bc70f415	cat: data exchange+file IO	1793813072
-a3d1d6e7e4e138db2	cat: command sys+UI/UX	1793813072
-ab6dd2aa413bb4a90	cat: ecosystem+scripting	1793813072
-acc2cb3120716f79b	cat: healing/tess/geom/subd	1793813072
-affecf0689743ce29	cat: subd app+surface ops	1793813072
-abbc74f1628a12b3c	sweep1 adaptive (refire)	1793813298
-ad9fdba50f11440b3	FilletSurfaces gaps (refire)	1793813298
-aee426d2e82fc7fbe	portability audit (MSVC/macOS)	1793813308
+a22f805f5b8242859	infra shards	1793814997
+ad51202d69d9cbbac	boolean sealing	1793814997
+ab8ab49d96ff3bdb2	countersink holes	1793814997
+a3c20d2ec90dd4667	multi-rim fillets	1793814997
+ad063fc59225db55d	round-trip audit	1793814997
+a8028528d0b117c0a	G2 curved adjacent	1793814997
+a13d247d574e06efa	SubD/ToNURBS	1793814997
+a958c87b4728e4c56	QC kernel	1793814997
+aea56be586c4a3cbc	QC app	1793814997
+a8a9234c422606428	cat offsetting	1793814997
+a31b5f41e566b1d50	cat sweep	1793814997
+a379f69435e63e5ac	cat blending	1793814997
+aa25f3d0614f6b495	cat feature ops	1793814997
+a784e743963ad23ba	cat local edit	1793814997
+a9eb10eeb1c45a645	cat topology	1793814997
+aaa8290c0dee9e756	cat boolean	1793814997
+a3c183e667fab8359	cat transforms	1793814997
+ad001ac3fc8025d5c	cat data exchange	1793814997
+a0fcf18f13e98b110	cat command/UI	1793814997
+a870407c233f334f5	cat ecosystem	1793814997
+a0fd4a35606388e92	cat healing/tess	1793814997
+af05c70a3b24c7a8a	cat subd app	1793814997
+a9e17406df0585a57	sweep1 adaptive	1793814997
+aff104a64776d0721	FilletSurfaces gaps	1793814997
+aebb8c91f32ce6d17	portability audit	1793814997
