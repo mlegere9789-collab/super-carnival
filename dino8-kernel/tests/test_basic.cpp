@@ -39,6 +39,7 @@
 #include "dino8/kernel/surface.h"
 #include "dino8/kernel/surface_intersect.h"
 #include "dino8/kernel/tolerance.h"
+#include "test_registry.h"  // d8test::ShouldRun (filter / shard / list) + tests/extra/*.cpp self-registration
 #ifdef DINO8_TEST_HAS_APP_MESHER
 // dino8-app's face-by-face brep mesher (what the app's MeshOf() calls) - see
 // tests/CMakeLists.txt; compiled in only when the app sources sit next to
@@ -77,9 +78,9 @@ void RunTest(const char* name, void (*fn)()) {
   // Dev convenience: DINO8_TEST_FILTER=<substring> runs only the tests
   // whose function name contains it (ON::Begin/End always run). Unset (the
   // normal full run) runs everything.
-  if (const char* filter = std::getenv("DINO8_TEST_FILTER")) {
-    if (*filter && std::strstr(name, filter) == nullptr && std::strncmp(name, "ON::", 4) != 0) return;
-  }
+  // Also honours DINO8_TEST_SHARD=k/n and DINO8_TEST_LIST=1 - see
+  // test_registry.h (same filter semantics as before).
+  if (!d8test::ShouldRun(name)) return;
   try {
     fn();
   } catch (const std::exception& e) {
@@ -99094,8 +99095,12 @@ int main() {
   RunTest("surface_fillet_tests::TestSurfaceFilletConvexEdgeOfTwoCurvedSurfaces", surface_fillet_tests::TestSurfaceFilletConvexEdgeOfTwoCurvedSurfaces);
   RunTest("surface_fillet_tests::TestSurfaceFilletToleranceControlsIntervalsAndMeasuredError", surface_fillet_tests::TestSurfaceFilletToleranceControlsIntervalsAndMeasuredError);
   RunTest("surface_fillet_tests::TestSurfaceFilletRefusesWithReasonsNeverAPatch", surface_fillet_tests::TestSurfaceFilletRefusesWithReasonsNeverAPatch);
+  // Tests that live in tests/extra/*.cpp (self-registered; sorted by name).
+  d8test::RunExtras();
   RunTest("ON::End", ON::End);
 
+  if (d8test::ListMode()) return 0;
+  g_failures += d8test::Failures();
   if (g_failures > 0) {
     std::fprintf(stderr, "%d check(s) failed\n", g_failures);
     return 1;
