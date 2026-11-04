@@ -34,6 +34,15 @@ class Marketplace {
   static Marketplace& Get();
 
   bool LoadFrom(const std::string& source, std::string& error);
+  // Loads a registry (MarketplaceIndex.h's LoadRegistryAuto) and makes the
+  // merged catalogue the loaded index, so every other marketplace operation
+  // (list/install/check-updates/...) works on it unchanged. On failure the
+  // previously loaded index is left untouched.
+  bool LoadRegistry(const std::string& location, std::vector<RegistrySourceResult>& results,
+                     std::vector<std::string>& notes, std::string& error);
+  // <config>/plugin-registry.json - where PluginMarketplaceRegistry looks
+  // when given no argument.
+  static std::string DefaultRegistryPath();
   const MarketplaceIndex& Index() const { return index_; }
   const std::string& Source() const { return source_; }
 

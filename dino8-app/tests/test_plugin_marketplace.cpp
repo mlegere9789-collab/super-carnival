@@ -12,6 +12,7 @@
 // is the fast, isolated half: does the index format actually parse
 // correctly, including its error paths, and is the hash check correct.
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <sstream>
 
@@ -296,6 +297,67 @@ int main(int argc, char** argv) {
 
   Check(!LoadIndexFromFile("/no/such/file/dino8_marketplace_test_missing.json", idx, error),
         "LoadIndexFromFile fails cleanly on a nonexistent path");
+
+  // ---- Registry (catalogue of indexes) ----
+  {
+    using dino8::plugins::LoadRegistryAuto;
+    using dino8::plugins::MarketplaceRegistry;
+    using dino8::plugins::MergeIndexes;
+    using dino8::plugins::ParseRegistry;
+    using dino8::plugins::RegistrySourceResult;
+    using dino8::plugins::ResolveRegistrySource;
+
+    MarketplaceRegistry reg;
+    std::string rerr;
+    Check(ParseRegistry(R"({"schema_version":1,"registry_name":"R","indexes":["a.json",{"source":"http://h/b.json"}]})", reg, rerr) &&
+              reg.sources.size() == 2 && reg.registry_name == "R" && reg.sources[1] == "http://h/b.json",
+          "ParseRegistry reads string and {source} elements");
+    Check(!ParseRegistry(R"({"schema_version":2,"indexes":["a"]})", reg, rerr), "ParseRegistry refuses schema_version 2");
+    Check(!ParseRegistry(R"({"schema_version":1,"indexes":[]})", reg, rerr), "ParseRegistry refuses an empty indexes array");
+    Check(!ParseRegistry(R"({"schema_version":1,"indexes":[{"name":"x"}]})", reg, rerr), "ParseRegistry refuses an element with no source");
+    Check(!ParseRegistry(R"({"schema_version":1,"plugins":[]})", reg, rerr) && rerr.find("not a registry") != std::string::npos,
+          "ParseRegistry refuses a plain plug-in index with a specific message");
+    Check(!ParseRegistry("{not json", reg, rerr), "ParseRegistry refuses malformed JSON");
+
+    Check(ResolveRegistrySource("/r/dir/reg.json", "idx.json") == "/r/dir/idx.json", "relative source resolves against the registry's directory");
+    Check(ResolveRegistrySource("/r/dir/reg.json", "/abs/i.json") == "/abs/i.json", "absolute source stays as is");
+    Check(ResolveRegistrySource("/r/dir/reg.json", "https://x/i.json") == "https://x/i.json", "URL source stays as is");
+    Check(ResolveRegistrySource("http://127.0.0.1:9/d/reg.json", "i.json") == "http://127.0.0.1:9/d/i.json", "relative source in a URL registry resolves against the URL directory");
+    Check(ResolveRegistrySource("http://127.0.0.1:9/d/reg.json", "/i.json") == "http://127.0.0.1:9/i.json", "root-relative source in a URL registry resolves against the host");
+
+    auto mk = [](const char* name, const char* id, const char* ver) {
+      MarketplaceIndex m;
+      m.index_name = name;
+      MarketplaceEntry e;
+      e.id = id; e.name = id; e.version = ver; e.bundled_path = "p";
+      m.plugins.push_back(e);
+      return m;
+    };
+    std::vector<std::string> notes;
+    MarketplaceIndex merged = MergeIndexes({mk("A", "x", "1.2.0"), mk("B", "x", "1.10.0"), mk("B", "y", "1.0.0"), mk("C", "y", "1.0.0")}, "M", &notes);
+    Check(merged.plugins.size() == 2 && merged.index_name == "M", "MergeIndexes dedupes by id (2 ids from 4 entries)");
+    Check(merged.plugins[0].id == "x" && merged.plugins[0].version == "1.10.0" && merged.plugins[0].origin == "B",
+          "MergeIndexes: numeric-higher version wins (1.10.0 over 1.2.0, not lexical)");
+    Check(merged.plugins[1].id == "y" && merged.plugins[1].origin == "B", "MergeIndexes: exact version tie keeps the earlier index");
+    Check(notes.size() == 2, "MergeIndexes reports one note per displaced duplicate");
+
+    const std::string dir = "/tmp/dino8_registry_unit_" + std::to_string(std::rand());
+    const std::string mkd = "mkdir -p " + dir;
+    if (std::system(mkd.c_str()) == 0) {
+      auto wr = [&](const std::string& n, const std::string& body) { std::ofstream(dir + "/" + n) << body; };
+      wr("good.json", R"({"schema_version":1,"index_name":"Good","plugins":[{"id":"g","name":"G","version":"1.0.0","bundled_path":"p"}]})");
+      wr("bad.json", "{ this is corrupt");
+      wr("reg.json", R"({"schema_version":1,"registry_name":"T","indexes":["bad.json","good.json","missing.json"]})");
+      wr("allbad.json", R"({"schema_version":1,"indexes":["bad.json","missing.json"]})");
+      MarketplaceIndex m; std::vector<RegistrySourceResult> res; std::vector<std::string> nt; std::string e;
+      Check(LoadRegistryAuto(dir + "/reg.json", m, res, nt, e) && m.plugins.size() == 1 && res.size() == 3 && !res[0].ok && res[1].ok && !res[2].ok,
+            "LoadRegistryAuto skips a corrupt and a missing index but still loads the good one");
+      Check(!LoadRegistryAuto(dir + "/allbad.json", m, res, nt, e), "LoadRegistryAuto fails when no listed index loads");
+      Check(!LoadRegistryAuto(dir + "/nope.json", m, res, nt, e), "LoadRegistryAuto fails on a missing registry file");
+      const std::string rmd = "rm -rf " + dir;
+      (void)std::system(rmd.c_str());
+    }
+  }
 
   if (failures) std::printf("%d FAILED\n", failures);
   else std::printf("all passed\n");

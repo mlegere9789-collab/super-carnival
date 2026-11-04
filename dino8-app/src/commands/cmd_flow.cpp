@@ -208,6 +208,37 @@ void RegisterFlowCommands(CommandEngine& e) {
         }
       }));
 
+  Reg(e, "PluginMarketplaceRegistry", Immediate([](CommandContext& ctx) {
+        std::vector<std::string> toks;
+        while (auto tok = ctx.Engine().TakePendingInput()) toks.push_back(*tok);
+        // No argument: the user's own registry, <config>/plugin-registry.json.
+        const std::string location = toks.empty() ? plugins::Marketplace::DefaultRegistryPath() : toks[0];
+        std::vector<plugins::RegistrySourceResult> results;
+        std::vector<std::string> notes;
+        std::string error;
+        if (!plugins::Marketplace::Get().LoadRegistry(location, results, notes, error)) {
+          ctx.Warn("PluginMarketplaceRegistry: " + error);
+          for (const auto& r : results)
+            if (!r.ok) ctx.Warn("PluginMarketplaceRegistry: skipped " + r.source + ": " + r.error);
+          return;
+        }
+        size_t loaded = 0;
+        for (const auto& r : results) {
+          if (r.ok) {
+            ++loaded;
+            ctx.Print("PluginMarketplaceRegistry: index \"" + r.index_name + "\" (" + std::to_string(r.plugin_count) +
+                      " plug-in(s)) from " + r.source);
+          } else {
+            ctx.Warn("PluginMarketplaceRegistry: skipped " + r.source + ": " + r.error);
+          }
+        }
+        for (const std::string& n : notes) ctx.Print("PluginMarketplaceRegistry: " + n);
+        const auto& idx = plugins::Marketplace::Get().Index();
+        ctx.Print("PluginMarketplaceRegistry: loaded \"" + idx.index_name + "\" - " + std::to_string(idx.plugins.size()) +
+                  " plug-in(s) merged from " + std::to_string(loaded) + " of " + std::to_string(results.size()) +
+                  " listed index(es)");
+      }));
+
   Reg(e, "PluginMarketplaceList", Immediate([](CommandContext& ctx) {
         std::vector<std::string> toks;
         while (auto tok = ctx.Engine().TakePendingInput()) toks.push_back(*tok);
@@ -244,6 +275,7 @@ void RegisterFlowCommands(CommandEngine& e) {
           }
           std::string line = "  " + p.id + ": " + p.name + " " + p.version + " by " + p.author + " (api v" +
                               std::to_string(p.api_version) + ", " + compat_label + ")";
+          if (!p.origin.empty()) line += " [from \"" + p.origin + "\"]";
           if (!p.dependencies.empty()) {
             std::string deps;
             for (const std::string& d : p.dependencies) deps += (deps.empty() ? "" : ", ") + d;
