@@ -67248,16 +67248,10 @@ void TestExtrudeAlongCurveNegativeControls() {
   const NurbsCurve rect = Polyline({P(0, 0, 0), P(2, 0, 0), P(2, 3, 0), P(0, 3, 0), P(0, 0, 0)});
   const NurbsCurve straight_path = Polyline({P(0, 0, 0), P(0, 0, 5)});
 
-  // A rational profile or path has no exact tensor-sum form (see
-  // SumSurface()'s own comment in sweep.cpp).
-  Check(Throws([&] { Brep::ExtrudeAlongCurve(Circle(P(0, 0, 0), Vector3d(0, 0, 1), 1.0), straight_path); }),
-        "a rational profile throws");
-  Check(Throws([&] { Brep::ExtrudeAlongCurve(rect, Circle(P(0, 0, 0), Vector3d(1, 0, 0), 1.0)); }),
-        "a rational path throws");
-
-  // A closed path has no well-defined net start/end displacement.
+  // (A rational profile or path is now supported exactly - see
+  // extrude_along_tests; a closed profile on a closed path is still refused.)
   const NurbsCurve closed_path = Polyline({P(0, 0, 0), P(1, 0, 0), P(1, 1, 0), P(0, 0, 0)});
-  Check(Throws([&] { Brep::ExtrudeAlongCurve(rect, closed_path); }), "a closed path throws");
+  Check(Throws([&] { Brep::ExtrudeAlongCurve(rect, closed_path); }), "a closed profile on a closed path throws");
 
   // The path's net displacement lying in the profile's own plane makes a
   // requested cap flat (undefined), but the same path sweeps fine
@@ -97504,6 +97498,180 @@ void TestSurfaceFilletRefusesWithReasonsNeverAPatch() {
 
 }  // namespace surface_fillet_tests
 
+// ---------------------------------------------------------------------------
+// Sweeping/lofting/extruding/revolving: ExtrudeAlongCurve for RATIONAL
+// profiles and paths (exact weighted sum surface) and closed paths.
+// ---------------------------------------------------------------------------
+namespace extrude_along_tests {
+
+using dino8::kernel::Brep;
+using dino8::kernel::NurbsCurve;
+using dino8::kernel::NurbsSurface;
+using dino8::kernel::Point3d;
+using dino8::kernel::Vector3d;
+using sweep_tests::Arc;
+using sweep_tests::Circle;
+using sweep_tests::CheckClosedMeshVolume;
+using sweep_tests::CheckSolidTopology;
+using sweep_tests::FaceSurface;
+using sweep_tests::P;
+using sweep_tests::Polyline;
+
+// True when `f` throws std::invalid_argument whose message contains `needle`
+// (a refusal must carry its stated reason, not merely throw).
+bool ThrowsWith(const std::function<void()>& f, const char* needle) {
+  try {
+    f();
+  } catch (const std::invalid_argument& e) {
+    return std::string(e.what()).find(needle) != std::string::npos;
+  }
+  return false;
+}
+
+// Largest distance between the swept wall and the INDEPENDENT closed form
+// profile(u) + path(v) - path(v_min), evaluated by openNURBS' own curve
+// evaluator (never through the kernel's sum-surface code).
+double WallVsSumOfCurves(const Brep& b, const NurbsCurve& profile, const NurbsCurve& path) {
+  const NurbsSurface wall = FaceSurface(b, 0);
+  const ON_Interval du = wall.raw().Domain(0), dv = wall.raw().Domain(1);
+  const ON_Interval pu = profile.raw().Domain(), pv = path.raw().Domain();
+  const ON_3dPoint q0 = path.raw().PointAt(pv.Min());
+  double worst = 0.0;
+  for (int i = 0; i <= 16; ++i) {
+    for (int j = 0; j <= 16; ++j) {
+      const double fu = i / 16.0, fv = j / 16.0;
+      const Point3d got = wall.PointAt(du.ParameterAt(fu), dv.ParameterAt(fv));
+      const ON_3dPoint want = profile.raw().PointAt(pu.ParameterAt(fu)) + (path.raw().PointAt(pv.ParameterAt(fv)) - q0);
+      worst = std::max(worst, got.DistanceTo(Point3d(want.x, want.y, want.z)));
+    }
+  }
+  return worst;
+}
+
+void TestExtrudeAlongCurveRationalProfileCylinderExact() {
+  // A true (rational) circle carried along a straight path IS the cylinder.
+  const double r = 2.0, h = 5.0;
+  const NurbsCurve circle = Circle(P(0, 0, 0), Vector3d(0, 0, 1), r);
+  Check(circle.raw().IsRational(), "fixture: the profile circle is rational");
+  const Brep cyl = Brep::ExtrudeAlongCurve(circle, Polyline({P(0, 0, 0), P(0, 0, h)}));
+  CheckSolidTopology(cyl, 3, "rational circle along a straight path");
+  Check(FaceSurface(cyl, 0).raw().IsRational(), "the wall is itself rational (weights carried)");
+  Check(FaceSurface(cyl, 0).IsCylinder(1e-9), "the wall classifies as the exact analytic cylinder");
+  // Every wall point is at EXACTLY radius r from the axis (a polynomial
+  // approximation of a circle could not satisfy this to 1e-12).
+  const NurbsSurface wall = FaceSurface(cyl, 0);
+  const ON_Interval du = wall.raw().Domain(0), dv = wall.raw().Domain(1);
+  double radial = 0.0, zerr = 0.0;
+  for (int i = 0; i <= 40; ++i) {
+    for (int j = 0; j <= 4; ++j) {
+      const Point3d p = wall.PointAt(du.ParameterAt(i / 40.0), dv.ParameterAt(j / 4.0));
+      radial = std::max(radial, std::fabs(std::hypot(p.x, p.y) - r));
+      zerr = std::max(zerr, std::fabs(p.z - h * j / 4.0));
+    }
+  }
+  Check(radial < 1e-12, "wall points lie at radius r from the axis to 1e-12 (exact circle, not a fit)");
+  Check(zerr < 1e-12, "wall heights are linear in v to 1e-12");
+  const double exact = M_PI * r * r * h;
+  Check(std::fabs(cyl.Volume() - exact) <= 1e-6 * exact, "analytic Brep::Volume() equals pi r^2 h");
+  CheckClosedMeshVolume(cyl, 96, 4, exact, 0.002, "rational-circle cylinder");
+  Check(std::fabs(cyl.Area() - (2.0 * M_PI * r * h + 2.0 * M_PI * r * r)) <= 1e-6 * exact,
+        "analytic Brep::Area() equals 2 pi r h + 2 pi r^2");
+}
+
+void TestExtrudeAlongCurveRationalProfileOnWobblyPath() {
+  // Rational circle (r = 1.5, XY plane) along a quadratic Bezier path that
+  // wanders in x and y but climbs monotonically in z: Cavalieri gives the
+  // volume pi r^2 * (net z), independent of the in-plane wander.
+  const double r = 1.5;
+  const NurbsCurve circle = Circle(P(0, 0, 0), Vector3d(0, 0, 1), r);
+  const NurbsCurve path = NurbsCurve::FromControlPoints({P(0, 0, 0), P(3, 2, 2), P(-1, 1, 4)}, 2);
+  const Brep swept = Brep::ExtrudeAlongCurve(circle, path);
+  CheckSolidTopology(swept, 3, "rational circle along a curved path");
+  Check(WallVsSumOfCurves(swept, circle, path) < 1e-12,
+        "wall equals profile(u) + path(v) - path(v_min) to 1e-12 over a 17x17 grid");
+  const double exact = M_PI * r * r * 4.0;
+  Check(std::fabs(swept.Volume() - exact) <= 1e-6 * exact, "analytic Brep::Volume() equals pi r^2 * net z (Cavalieri)");
+  CheckClosedMeshVolume(swept, 96, 48, exact, 0.003, "rational circle on a curved path");
+}
+
+void TestExtrudeAlongCurveRationalPathAndBothRational() {
+  // Rational PATH: a quarter circle (radius 3, in the XZ plane) from (3,0,0)
+  // to (0,0,3), non-rational rectangle profile in XY: z is monotone along
+  // the arc so Cavalieri gives area * net z = 6 * 3, whatever the x wander.
+  const NurbsCurve arc_path = Arc(P(0, 0, 0), Vector3d(1, 0, 0), Vector3d(0, 0, 1), 3.0, 0.0, M_PI / 2);
+  Check(arc_path.raw().IsRational(), "fixture: the path arc is rational");
+  const NurbsCurve rect = Polyline({P(0, 0, 0), P(2, 0, 0), P(2, 3, 0), P(0, 3, 0), P(0, 0, 0)});
+  const Brep a = Brep::ExtrudeAlongCurve(rect, arc_path);
+  CheckSolidTopology(a, 3, "rectangle along a rational quarter-circle path");
+  Check(WallVsSumOfCurves(a, rect, arc_path) < 1e-12, "rational-path wall equals profile(u) + path(v) - path(v_min) to 1e-12");
+  Check(std::fabs(a.Volume() - 18.0) <= 1e-6 * 18.0, "analytic volume = area 6 x net z 3");
+  CheckClosedMeshVolume(a, 8, 96, 18.0, 0.002, "rectangle along a rational quarter circle");
+
+  // BOTH rational: circle profile (r = 1) along the same arc.
+  const NurbsCurve circle = Circle(P(0, 0, 0), Vector3d(0, 0, 1), 1.0);
+  const Brep b = Brep::ExtrudeAlongCurve(circle, arc_path);
+  CheckSolidTopology(b, 3, "rational circle along a rational arc");
+  Check(FaceSurface(b, 0).raw().IsRational(), "both-rational wall is rational");
+  Check(WallVsSumOfCurves(b, circle, arc_path) < 1e-12, "both-rational wall equals the sum of the curves to 1e-12");
+  const double exact = M_PI * 3.0;
+  Check(std::fabs(b.Volume() - exact) <= 1e-6 * exact, "both-rational analytic volume = pi r^2 x net z");
+}
+
+void TestExtrudeAlongCurveClosedPathMakesAPeriodicSheet() {
+  // A vertical line segment carried round a rational circle of radius 2
+  // (starting at (2,0,0)) is the exact cylinder wall of radius 2 about the
+  // axis x = -2, y = 0: the sum surface (cos t * 2 - 2, 2 sin t, z).
+  const double r = 2.0, h = 3.0;
+  const NurbsCurve ring = Circle(P(0, 0, 0), Vector3d(0, 0, 1), r);
+  const NurbsCurve rod = Polyline({P(0, 0, 0), P(0, 0, h)});
+  const Brep sheet = Brep::ExtrudeAlongCurve(rod, ring);
+  Check(sheet.FaceCount() == 1 && sheet.raw().IsValid(), "closed path + open profile -> one valid periodic face");
+  Check(!sheet.raw().IsSolid(), "...an open sheet, not a solid");
+  Check(FaceSurface(sheet, 0).raw().IsClosed(1), "the wall is closed (periodic) in the path direction");
+  const NurbsSurface wall = FaceSurface(sheet, 0);
+  const ON_Interval du = wall.raw().Domain(0), dv = wall.raw().Domain(1);
+  const ON_3dPoint start = ring.raw().PointAtStart();
+  double radial = 0.0;
+  for (int i = 0; i <= 8; ++i) {
+    for (int j = 0; j <= 48; ++j) {
+      const Point3d p = wall.PointAt(du.ParameterAt(i / 8.0), dv.ParameterAt(j / 48.0));
+      radial = std::max(radial, std::fabs(std::hypot(p.x - (-r + start.x), p.y - start.y) - r));
+    }
+  }
+  Check(radial < 1e-12, "every wall point is at radius r from the shifted axis to 1e-12");
+  const double exact_area = 2.0 * M_PI * r * h;
+  Check(std::fabs(sheet.Area() - exact_area) <= 1e-6 * exact_area, "analytic Brep::Area() = 2 pi r h");
+  Check(WallVsSumOfCurves(sheet, rod, ring) < 1e-12, "wall equals the independent sum of the curves");
+  bool oriented = false, has_boundary = false;
+  Check(sheet.raw().IsManifold(&oriented, &has_boundary) && has_boundary, "manifold with boundary (the two rod-end circles)");
+}
+
+void TestExtrudeAlongCurveNegativeControlsReasons() {
+  const NurbsCurve rect = Polyline({P(0, 0, 0), P(2, 0, 0), P(2, 3, 0), P(0, 3, 0), P(0, 0, 0)});
+  const NurbsCurve ring = Circle(P(0, 0, 0), Vector3d(0, 0, 1), 2.0);
+  const NurbsCurve rod = Polyline({P(0, 0, 0), P(0, 0, 3)});
+  // Closed profile on a closed path: zero net volume, refused with that reason.
+  Check(ThrowsWith([&] { Brep::ExtrudeAlongCurve(rect, ring); }, "zero net volume"),
+        "closed profile + closed path refused with the zero-net-volume reason");
+  Check(ThrowsWith([&] { Brep::ExtrudeAlongCurve(Circle(P(0, 0, 0), Vector3d(0, 0, 1), 1.0), ring, false); },
+                   "zero net volume"),
+        "...even with cap=false and a rational closed profile");
+  // Zero-length open path still refused.
+  Check(ThrowsWith([&] { Brep::ExtrudeAlongCurve(rect, Polyline({P(0, 0, 0), P(0, 0, 0)})); }, ""),
+        "a degenerate path throws");
+  // Net displacement in the profile plane + cap still refused (flat), uncapped fine.
+  const NurbsCurve flat_arc = Arc(P(0, 0, 0), Vector3d(1, 0, 0), Vector3d(0, 1, 0), 3.0, 0.0, M_PI / 2);
+  Check(ThrowsWith([&] { Brep::ExtrudeAlongCurve(rect, flat_arc); }, "flat"),
+        "rational path whose net displacement lies in the profile plane refused when capped (flat)");
+  Check(Brep::ExtrudeAlongCurve(rect, flat_arc, false).FaceCount() == 1, "...but sweeps uncapped");
+  // Non-planar closed profile still refuses to cap.
+  const NurbsCurve skew = Polyline({P(0, 0, 0), P(2, 0, 0), P(2, 3, 1), P(0, 3, 0), P(0, 0, 0)});
+  Check(ThrowsWith([&] { Brep::ExtrudeAlongCurve(skew, rod); }, "not planar"),
+        "non-planar closed profile refuses to cap with the planarity reason");
+}
+
+}  // namespace extrude_along_tests
+
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   RunTest("ON::Begin", ON::Begin);
@@ -99094,6 +99262,16 @@ int main() {
   RunTest("surface_fillet_tests::TestSurfaceFilletConvexEdgeOfTwoCurvedSurfaces", surface_fillet_tests::TestSurfaceFilletConvexEdgeOfTwoCurvedSurfaces);
   RunTest("surface_fillet_tests::TestSurfaceFilletToleranceControlsIntervalsAndMeasuredError", surface_fillet_tests::TestSurfaceFilletToleranceControlsIntervalsAndMeasuredError);
   RunTest("surface_fillet_tests::TestSurfaceFilletRefusesWithReasonsNeverAPatch", surface_fillet_tests::TestSurfaceFilletRefusesWithReasonsNeverAPatch);
+  RunTest("extrude_along_tests::TestExtrudeAlongCurveRationalProfileCylinderExact",
+          extrude_along_tests::TestExtrudeAlongCurveRationalProfileCylinderExact);
+  RunTest("extrude_along_tests::TestExtrudeAlongCurveRationalProfileOnWobblyPath",
+          extrude_along_tests::TestExtrudeAlongCurveRationalProfileOnWobblyPath);
+  RunTest("extrude_along_tests::TestExtrudeAlongCurveRationalPathAndBothRational",
+          extrude_along_tests::TestExtrudeAlongCurveRationalPathAndBothRational);
+  RunTest("extrude_along_tests::TestExtrudeAlongCurveClosedPathMakesAPeriodicSheet",
+          extrude_along_tests::TestExtrudeAlongCurveClosedPathMakesAPeriodicSheet);
+  RunTest("extrude_along_tests::TestExtrudeAlongCurveNegativeControlsReasons",
+          extrude_along_tests::TestExtrudeAlongCurveNegativeControlsReasons);
   RunTest("ON::End", ON::End);
 
   if (g_failures > 0) {

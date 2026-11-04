@@ -298,34 +298,48 @@ std::unique_ptr<ON_NurbsSurface> RuledBetween(const ON_NurbsCurve& c0, const ON_
 // Exact tensor-product sum surface S(u, v) = profile(u) + (path(v) -
 // path(v_min)): a translational sweep of `profile` along `path`'s own
 // displacement, with no frame rotation at all (unlike Sweep1's RMF
-// transport). This is exact, not a fit, because a B-spline basis is a
-// partition of unity: writing profile(u) = sum_i A_i N_i(u) and
-// path(v) - path(v_min) = sum_j B_j M_j(v) (B_j already measured from the
-// path's own first control point, which - since `path` is clamped -
-// equals path(v_min) exactly), the tensor-product surface with control
-// net P_ij = A_i + B_j reduces pointwise to
-//   sum_i sum_j (A_i + B_j) N_i(u) M_j(v)
-//     = A(u) * (sum_j M_j(v)) + (path(v) - path(v_min)) * (sum_i N_i(u))
-//     = A(u) + path(v) - path(v_min),
-// using partition of unity (sum_i N_i(u) = 1, sum_j M_j(v) = 1) in the
-// last step - true for ANY B-spline basis regardless of degree or knot
-// vector, but only for a NON-rational one (a rational basis divides by a
-// per-parameter weight sum that does not itself decompose this way, so
-// the same additive control-net trick is not exact for a rational curve
-// in either direction - both `profile` and `path` must be non-rational,
-// checked by the caller).
+// transport). This is exact, not a fit.
+//
+// NON-RATIONAL curves: a B-spline basis is a partition of unity, so with
+// profile(u) = sum_i A_i N_i(u) and path(v) - path(v_min) = sum_j B_j M_j(v)
+// (B_j measured from the path's own first control point, which - `path` is
+// clamped - equals path(v_min) exactly) the net P_ij = A_i + B_j reduces
+// pointwise to A(u) * sum_j M_j + (path(v) - path(v_min)) * sum_i N_i
+// = A(u) + path(v) - path(v_min).
+//
+// RATIONAL curves (either or both): write profile(u) = sum_i w_i N_i A_i /
+// a(u), a(u) = sum_i w_i N_i, and path(v) = sum_j W_j M_j Q_j / b(v),
+// b(v) = sum_j W_j M_j (a non-rational curve is the all-weights-1 case).
+// The surface with control points P_ij = A_i + Q_j - Q_0 and weights
+// w_i W_j has denominator sum_ij w_i W_j N_i M_j = a(u) b(v) and
+//   S = [sum_ij w_i W_j N_i M_j (A_i + Q_j - Q_0)] / (a b)
+//     = [b * sum_i w_i N_i A_i + a * sum_j W_j M_j Q_j] / (a b) - Q_0
+//     = profile(u) + path(v) - Q_0,
+// and Q_0 = path(v_min) because a clamped (rational) curve interpolates
+// its first control point. So the sum surface of ANY clamped NURBS pair is
+// again an exact NURBS surface, rational iff either curve is.
 std::unique_ptr<ON_NurbsSurface> SumSurface(const ON_NurbsCurve& profile, const ON_NurbsCurve& path,
                                             const char* caller) {
   const int nu = profile.CVCount();
   const int nv = path.CVCount();
+  const bool rational = profile.IsRational() || path.IsRational();
   auto s = std::make_unique<ON_NurbsSurface>();
-  if (!s->Create(3, false, profile.Order(), path.Order(), nu, nv)) Internal(caller, "ON_NurbsSurface::Create failed");
+  if (!s->Create(3, rational, profile.Order(), path.Order(), nu, nv)) Internal(caller, "ON_NurbsSurface::Create failed");
   CopyKnots(profile, *s, 0);
   CopyKnots(path, *s, 1);
   const ON_3dPoint origin = EuclideanCV(path, 0);
   for (int j = 0; j < nv; ++j) {
     const ON_3dVector offset = EuclideanCV(path, j) - origin;
-    for (int i = 0; i < nu; ++i) s->SetCV(i, j, EuclideanCV(profile, i) + offset);
+    const double wj = path.IsRational() ? path.Weight(j) : 1.0;
+    for (int i = 0; i < nu; ++i) {
+      const ON_3dPoint p = EuclideanCV(profile, i) + offset;
+      if (!rational) {
+        s->SetCV(i, j, p);
+      } else {
+        const double w = (profile.IsRational() ? profile.Weight(i) : 1.0) * wj;
+        s->SetCV(i, j, ON_4dPoint(p.x * w, p.y * w, p.z * w, w));
+      }
+    }
   }
   return s;
 }
@@ -1860,23 +1874,26 @@ Brep Brep::ExtrudeAlongCurve(const NurbsCurve& profile, const NurbsCurve& path, 
   const char* caller = "ExtrudeAlongCurve";
   ON_NurbsCurve c = profile.raw();
   if (!c.IsValid()) Fail(caller, "profile is not a valid NURBS curve");
-  if (c.IsRational()) {
-    Fail(caller, "profile must be a non-rational NURBS curve - the exact tensor-product sum construction has no "
-                 "rational form (see this function's own brep.h doc comment)");
-  }
   ClampIfPeriodic(c);
 
   ON_NurbsCurve path_c = path.raw();
   if (!path_c.IsValid()) Fail(caller, "path is not a valid NURBS curve");
-  if (path_c.IsRational()) {
-    Fail(caller, "path must be a non-rational NURBS curve - the exact tensor-product sum construction has no "
-                 "rational form (see this function's own brep.h doc comment)");
-  }
-  if (path_c.IsClosed()) {
-    Fail(caller, "path must be an open curve - a closed path has no well-defined start/end displacement to "
-                 "translate the profile by, and the resulting wall would need periodic capping this does not attempt");
-  }
   ClampIfPeriodic(path_c);
+  if (path_c.IsClosed()) {
+    // A closed path is allowed for an OPEN profile only (a periodic sheet,
+    // e.g. a line carried round a circle = the exact cylinder wall). A
+    // closed profile carried round a closed path returns to where it
+    // began: its enclosed signed volume is exactly zero (Cavalieri: the
+    // net displacement along the profile's normal is zero), so the
+    // doubly periodic wall self-overlaps and is not a solid - refused.
+    if (c.IsClosed()) {
+      Fail(caller, "a closed profile carried along a closed path returns to its start: the swept body has "
+                   "zero net volume (it folds back through itself) and is not a solid - use an open profile "
+                   "for a periodic sheet, or an open path");
+    }
+    std::unique_ptr<ON_NurbsSurface> sheet = SumSurface(c, path_c, caller);
+    return AssembleSweptBody(sheet.release(), false, false, false, false, caller);
+  }
 
   const ON_3dPoint path_start = path_c.PointAtStart();
   const ON_3dPoint path_end = path_c.PointAtEnd();
