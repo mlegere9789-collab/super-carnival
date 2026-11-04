@@ -501,6 +501,7 @@ bool Manager::LoadFile(Application& app, const std::string& path, std::string& e
     error = "no dino8_plugin_init() export";
     p.error = error;
     DoClose(handle);
+    p.handle = nullptr;  // closed: a later Unload() of this failed entry must not close it again
     plugins_.push_back(p);
     return false;
   }
@@ -523,6 +524,7 @@ bool Manager::LoadFile(Application& app, const std::string& path, std::string& e
     error = "dino8_plugin_init returned " + std::to_string(rc);
     p.error = error;
     DoClose(handle);
+    p.handle = nullptr;  // closed: a later Unload() of this failed entry must not close it again
     plugins_.push_back(p);
     return false;
   }

@@ -196,7 +196,17 @@ bool InstallEntry(app::Application& app, const MarketplaceEntry& entry, const st
     return false;
   }
 
-  return Manager::Get().LoadFile(app, dest_path, error);
+  if (!Manager::Get().LoadFile(app, dest_path, error)) {
+    // A package that passed the hash check (or had none) but is not a
+    // loadable plug-in must not stay behind in <config>/plugins: it would be
+    // retried (and fail again) on every start and show up as an installed
+    // entry that is not one.
+    Manager::Get().Unload(dest_path);
+    std::error_code rm_ec;
+    fs::remove(dest_path, rm_ec);
+    return false;
+  }
+  return true;
 }
 
 Marketplace& Marketplace::Get() {
