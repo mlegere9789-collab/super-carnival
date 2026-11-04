@@ -1,0 +1,47 @@
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info
+.pytest_cache
+.ipynb_checkpoints
+
+thumbs.db
+.DS_Store
+.idea
+
+# --- Income Orchestrator ---
+# Secrets: never commit real credentials. Only .env.example is tracked.
+.env
+.env.*
+!.env.example
+# Local runtime data: the SQLite DB, per-job logs, scheduler state.
+data/*
+!data/.gitkeep
+# Your live job config (jobs.example.json IS tracked as the template).
+orchestrator/jobs.json
+
+
+# --- MediaSuite (.NET) ---
+[Bb]in/
+[Oo]bj/
+*.user
+*.suo
+.vs/
+# Bundled third-party binaries: downloaded per machine, never committed.
+mediasuite/tools/*
+!mediasuite/tools/README.md
+# Installer build output: produced by installer/build.ps1, never committed.
+mediasuite/publish/
+mediasuite/dist/
+# Third-party tool binaries fetched by installer/fetch-tools.ps1, staged for the
+# installer to bundle — downloaded fresh on every build, never committed.
+mediasuite/tools-staged/
+
+# CMake build trees
+build/
+build-agent/
+dino8-app/dist/
+dino8-app/build-agent/
+
+# Claude Code session-local state (e.g. background-agent worktrees).
+.claude/
