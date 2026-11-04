@@ -12565,4 +12565,17 @@ else
 fi
 if [ "$(sps_box 2)" != "$(sps_box 1)" ]; then sps_ok "SPS_H_sensitive: the moved wall's box differs from the original one (the comparison can fail)"; else sps_bad "SPS_H_sensitive: the box did not change when the section moved"; fi
 
+# --- BCB_: ChamferEdge reports the real fittable distances (kernel::MaxChamferDistance) when a request overflows.
+if [ -n "${DISPLAY:-}" ] && xset q >/dev/null 2>&1 || ! command -v xvfb-run >/dev/null 2>&1; then
+  BCB="$(timeout 900 "$BIN" --smoke 200 --script "$HERE/bcb_script.txt" 2>&1)" || { echo "$BCB"; echo "FAIL: bcb script exited non-zero"; exit 1; }
+else
+  BCB="$(timeout 900 xvfb-run -a -s "-screen 0 1600x900x24" "$BIN" --smoke 200 --script "$HERE/bcb_script.txt" 2>&1)" || { echo "$BCB"; echo "FAIL: bcb script exited non-zero"; exit 1; }
+fi
+bcbcheck() { if grep -q -- "$1" <<<"$BCB"; then echo "ok   $2"; else echo "FAIL $2"; near "$BCB" "$1"; fail=1; fi; }
+bcbcheck "the largest distances this edge's own two faces support are [0-9.]* and [0-9.]*: distance1 50 exceeds" "BCB_sym: a symmetric Radius=50 chamfer on a 5-wide face names the real bound"
+bcbcheck "distance2 50 exceeds the [0-9.]* face 2 supports" "BCB_asym: an asymmetric Distance2=50 request names which distance overflows"
+bcbcheck "Volume = 1000 cubic" "BCB_untouched: a refused chamfer leaves the box at 1000 (nothing silently built)"
+bcbcheck "Volume = 999 cubic" "BCB_control: a fitting 1x1 chamfer still succeeds with the exact 999 volume"
+if grep -q "chamfer (radius 1).*largest distances" <<<"$BCB"; then echo "FAIL BCB_nonote: a successful chamfer must not carry the overflow note"; fail=1; else echo "ok   BCB_nonote: a successful chamfer carries no overflow note"; fi
+
 exit $fail
