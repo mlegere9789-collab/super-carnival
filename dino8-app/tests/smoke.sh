@@ -12565,4 +12565,30 @@ else
 fi
 if [ "$(sps_box 2)" != "$(sps_box 1)" ]; then sps_ok "SPS_H_sensitive: the moved wall's box differs from the original one (the comparison can fail)"; else sps_bad "SPS_H_sensitive: the box did not change when the section moved"; fi
 
+# ---------------------------------------------------------------------------
+# QCA_: adversarial QC regressions found by driving the app (qca_script.txt). Every case of the script starts from `New`
+# and is bracketed by an unknown-command marker QCABEGIN_<name> that the blocks below are sliced on. Output checks use
+# here-strings; every grep that may match nothing carries `|| true`.
+# ---------------------------------------------------------------------------
+if [ -n "${DISPLAY:-}" ] && xset q >/dev/null 2>&1 || ! command -v xvfb-run >/dev/null 2>&1; then
+  QCAO="$(timeout 900 "$BIN" --smoke 60 --script "$HERE/qca_script.txt" 2>&1)" || { echo "$QCAO" | tail -30; echo "FAIL QCA_run: qca script exited non-zero"; fail=1; QCAO=""; }
+else
+  QCAO="$(timeout 900 xvfb-run -a -s "-screen 0 1600x900x24" "$BIN" --smoke 60 --script "$HERE/qca_script.txt" 2>&1)" || { echo "$QCAO" | tail -30; echo "FAIL QCA_run: qca script exited non-zero"; fail=1; QCAO=""; }
+fi
+qcablock() { awk -v name="$1" '$0 ~ ("Unknown command: QCABEGIN_" name "$") { on = 1; next } on && /Unknown command: QCABEGIN_/ { exit } on { print }' <<<"$QCAO"; }
+qca_has() { local blk; blk="$(qcablock "$1")"; if grep -qF -- "$2" <<<"$blk"; then echo "ok   $3"; else echo "FAIL $3"; echo "     expected: $2"; grep -E "^history: (Sweep1|Object|!)" <<<"$blk" | head -6 | sed 's/^/     actual:   /' || true; fail=1; fi; }
+qca_hasnot() { local blk; blk="$(qcablock "$1")"; if grep -qF -- "$2" <<<"$blk"; then echo "FAIL $3"; echo "     unexpected: $2"; fail=1; else echo "ok   $3"; fi; }
+qca_objs() { local blk n; blk="$(qcablock "$1")"; n="$({ grep -cE "^history: Object [0-9]+ \(" <<<"$blk" || true; })"; if [ "$n" = "$2" ]; then echo "ok   $3 ($n object(s))"; else echo "FAIL $3 ('$n' object(s), expected $2)"; fail=1; fi; }
+# the case blocks must exist at all (a renamed marker would otherwise make every qca_hasnot pass vacuously)
+for QCA_CASE in scale_forgive scale_replaced; do
+  if [ -n "$(qcablock "$QCA_CASE")" ]; then echo "ok   QCA_block_$QCA_CASE: the case's output was found"; else echo "FAIL QCA_block_$QCA_CASE: no output between the markers"; fail=1; fi
+done
+# Sweep1: a refused ScaleX must not be forgiven by a later valid ScaleY
+qca_has scale_forgive "Sweep1: no surface created - ScaleX must be 'start,end'" "QCA_scale_forgive: ScaleX=-1,2 then ScaleY=2,2 still refuses (the X refusal is not cleared by the valid Y)"
+qca_hasnot scale_forgive "exact kernel sweep" "QCA_scale_forgive: ...and no sweep is built with the X scale silently dropped"
+qca_objs scale_forgive 2 "QCA_scale_forgive: only the rail and the section exist (nothing built)"
+# control: replacing the refused value by a valid one builds the sweep, scaled on both axes
+qca_has scale_replaced "exact kernel sweep with a per-axis scale along the rail (x 2,2, y 2,2;" "QCA_scale_replaced: a refused ScaleX REPLACED by a valid one builds the scaled sweep"
+qca_objs scale_replaced 3 "QCA_scale_replaced: rail, section and the swept surface"
+
 exit $fail
