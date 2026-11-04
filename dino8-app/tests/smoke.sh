@@ -12565,4 +12565,14 @@ else
 fi
 if [ "$(sps_box 2)" != "$(sps_box 1)" ]; then sps_ok "SPS_H_sensitive: the moved wall's box differs from the original one (the comparison can fail)"; else sps_bad "SPS_H_sensitive: the box did not change when the section moved"; fi
 
+# >>> sections/*.sh sourced here
+# Section files in tests/sections/ (see README_sections.md) are sourced, in sorted (C-locale) order, into THIS shell, so
+# they see every helper and variable above (BIN, HERE, TMP, TMPW, HEREW, OUT, fail, check, near, ...) and set `fail=1`
+# on a failure like any inline section. New sections go in their own file there instead of being appended to this file.
+if [ -d "$HERE/sections" ]; then
+  while IFS= read -r _sec_file; do
+    [ -f "$_sec_file" ] && . "$_sec_file"
+  done < <(printf '%s\n' "$HERE"/sections/*.sh | LC_ALL=C sort | grep -v '[*]')
+fi
+
 exit $fail
