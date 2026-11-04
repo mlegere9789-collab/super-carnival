@@ -97504,6 +97504,58 @@ void TestSurfaceFilletRefusesWithReasonsNeverAPatch() {
 
 }  // namespace surface_fillet_tests
 
+// Independent QC of recently added kernel code: each test below was written to FAIL against the code as it stood.
+namespace qc_review_tests {
+
+// A '@<len> ' string whose decimal length wraps size_t (2^64 - 22 for a 20-digit number) made `pos + len > n` pass and
+// `pos += len` move the cursor BACK onto the '@' itself: the same string token (a copy of the whole rest of the
+// file) was then pushed until the 2M-token cap, i.e. gigabytes from a tiny hostile file.
+void TestSatHugeAtStringLengthIsRefusedAsTruncatedNotLoopedOn() {
+  std::string t = "700 0 1 0\n1 a 1 b 1 c\n1 1e-6 1e-10\n";
+  t += std::string(100, ' ');
+  t += "@18446744073709551594 ";
+  t += std::string(100, ' ');
+  std::istringstream is(t);
+  const auto t0 = std::chrono::steady_clock::now();
+  const dino8::kernel::AcisSatReadResult r = dino8::kernel::ReadAcisSat(is);
+  const double secs = std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count();
+  Check(!r.ok, "SAT: a wrapped '@' string length is refused");
+  Check(r.error.find("tokens") == std::string::npos, ("SAT: refused for its string length, not by running into the token cap: " + r.error).c_str());
+  Check(r.error.find("string") != std::string::npos, ("SAT: the refusal names the string: " + r.error).c_str());
+  Check(secs < 1.0, "SAT: refused promptly");
+  // a length that merely runs past the end (no wrap) is the existing truncated-file refusal
+  std::string u = "700 0 1 0\n1 a 1 b 1 c\n1 1e-6 1e-10\n@500 abc";
+  std::istringstream is2(u);
+  const dino8::kernel::AcisSatReadResult r2 = dino8::kernel::ReadAcisSat(is2);
+  Check(!r2.ok && r2.error.find("string") != std::string::npos, "SAT: an over-long (non-wrapping) '@' string is refused");
+}
+
+void TestSweep1ClosedRailPerAxisScaleJumpIntoTheSeamIsRefused() {
+  using dino8::kernel::Brep;
+  using dino8::kernel::NurbsCurve;
+  const double R = 10.0, rr = 1.0;
+  ON_NurbsCurve rn;
+  ON_Circle(ON_Plane(ON_3dPoint(0, 0, 0), ON_3dVector(1, 0, 0), ON_3dVector(0, 1, 0)), R).GetNurbForm(rn);
+  NurbsCurve rail;
+  rail.raw() = rn;
+  ON_NurbsCurve sn;
+  ON_Circle(ON_Plane(ON_3dPoint(R, 0, 0), ON_3dVector(0, 0, 1), ON_3dVector(1, 0, 0)), rr).GetNurbForm(sn);
+  NurbsCurve section;
+  section.raw() = sn;
+  // 1 -> 5 over [0, 0.95], back to 1 at t = 1: the last of 32 stations (31/32) sits at ~3.5, and the step from there to
+  // the seam (station 0 again, value 1) is a factor 3.5 > 2, which the consecutive-station check must also cover.
+  const std::vector<std::pair<double, double>> sx = {{0.0, 1.0}, {0.95, 5.0}, {1.0, 1.0}};
+  std::string why;
+  try {
+    Brep::Sweep1(section, rail, 32, false, 0.0, 1.0, nullptr, nullptr, nullptr, &sx, nullptr);
+  } catch (const std::invalid_argument& e) {
+    why = e.what();
+  }
+  Check(why.find("factor") != std::string::npos, ("sweep1 per-axis (closed rail): the jump from the last station into the seam is refused: " + why).c_str());
+}
+
+}  // namespace qc_review_tests
+
 int main() {
   std::setvbuf(stdout, nullptr, _IONBF, 0);
   RunTest("ON::Begin", ON::Begin);
@@ -99094,6 +99146,10 @@ int main() {
   RunTest("surface_fillet_tests::TestSurfaceFilletConvexEdgeOfTwoCurvedSurfaces", surface_fillet_tests::TestSurfaceFilletConvexEdgeOfTwoCurvedSurfaces);
   RunTest("surface_fillet_tests::TestSurfaceFilletToleranceControlsIntervalsAndMeasuredError", surface_fillet_tests::TestSurfaceFilletToleranceControlsIntervalsAndMeasuredError);
   RunTest("surface_fillet_tests::TestSurfaceFilletRefusesWithReasonsNeverAPatch", surface_fillet_tests::TestSurfaceFilletRefusesWithReasonsNeverAPatch);
+  RunTest("qc_review_tests::TestSatHugeAtStringLengthIsRefusedAsTruncatedNotLoopedOn",
+          qc_review_tests::TestSatHugeAtStringLengthIsRefusedAsTruncatedNotLoopedOn);
+  RunTest("qc_review_tests::TestSweep1ClosedRailPerAxisScaleJumpIntoTheSeamIsRefused",
+          qc_review_tests::TestSweep1ClosedRailPerAxisScaleJumpIntoTheSeamIsRefused);
   RunTest("ON::End", ON::End);
 
   if (g_failures > 0) {
