@@ -3712,7 +3712,15 @@ std::optional<SceneObject> RebuildExtrudeAlongCrv(CommandContext& ctx, const ker
     // profile plane, ...) is reported with the kernel's reason and NO
     // surface is substituted for the solid that was asked for.
     try {
-      return SceneObject::MakeBrep(kernel::Brep::ExtrudeAlongCurve(profile, path, /*cap=*/true));
+      const kernel::Brep b = kernel::Brep::ExtrudeAlongCurve(profile, path, /*cap=*/true);
+      char buf[160];
+      if (b.raw().IsSolid()) {
+        std::snprintf(buf, sizeof(buf), "ExtrudeCrvAlongCrv: exact kernel sum surface + 2 planar caps, closed solid, exact volume %.9g", b.Volume());
+      } else {
+        std::snprintf(buf, sizeof(buf), "ExtrudeCrvAlongCrv: exact kernel sum surface, open sheet (no caps: the profile is open), area %.9g", b.Area());
+      }
+      ctx.Print(buf);
+      return SceneObject::MakeBrep(b);
     } catch (const std::exception& ex) {
       ctx.Warn(std::string("ExtrudeCrvAlongCrv Solid=Yes: ") + ex.what());
       return std::nullopt;
