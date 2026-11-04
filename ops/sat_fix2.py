@@ -1,0 +1,11 @@
+import sys
+p=sys.argv[1]; s=open(p).read()
+s=s.replace("    kernel::Brep body;\n    if (o.kind == ObjectKind::Brep && o.brep) {\n      body = *o.brep;","    std::optional<kernel::Brep> body;\n    if (o.kind == ObjectKind::Brep && o.brep) {\n      body.emplace(*o.brep);")
+s=s.replace("        body = kernel::Brep::FromSurface(*o.surface);","        body.emplace(kernel::Brep::FromSurface(*o.surface));")
+s=s.replace("WriteAcisSat(scratch, {body}, opt)","WriteAcisSat(scratch, {*body}, opt)")
+s=s.replace("ok.push_back({&o, body, pass == 1});","ok.push_back({&o, *body, pass == 1});")
+s=s.replace("#include <filesystem>\n","#include <filesystem>\n#include <optional>\n")
+open(p,'w').write(s)
+c=sys.argv[2]; t=open(c).read()
+t=t.replace("  src/io/FileIgesStep.cpp\n","  src/io/FileIgesStep.cpp\n  src/io/FileSat.cpp\n",1)
+open(c,'w').write(t)

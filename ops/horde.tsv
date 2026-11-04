@@ -1,0 +1,25 @@
+a025338f829373c0d	infra: shards+per-feature files	1793813072
+a1166e7f0dfe93497	boolean sealing coverage	1793813072
+a1461cbbcbfc614b8	countersink/counterbore holes	1793813072
+aedddd486c8dc172a	multi-rim fillets	1793813072
+a70bbcc3c71982e67	round-trip/export audit	1793813072
+a0b1293194e9ad025	G2 curved adjacent	1793813072
+a68fa029929efa733	SubD/ToNURBS hardening	1793813072
+af62dab854ede528d	QC reviewer kernel	1793813072
+a96db4853e2683023	QC reviewer app	1793813072
+a098ae0d4ae741bb0	cat: offsetting+shelling	1793813072
+ae218ab20a1caf404	cat: sweep/loft/extrude	1793813072
+a9fe744a29b22d5c0	cat: blending	1793813072
+a666ec8f2a94100e8	cat: feature ops	1793813072
+af78da953e7552ee8	cat: local/direct edit	1793813072
+a7c75718f75e83f2b	cat: topology	1793813072
+aa16c30092cfd74d8	cat: boolean	1793813072
+a536c0c386c02d484	cat: transforms/patterns/split	1793813072
+a0272e941bc70f415	cat: data exchange+file IO	1793813072
+a3d1d6e7e4e138db2	cat: command sys+UI/UX	1793813072
+ab6dd2aa413bb4a90	cat: ecosystem+scripting	1793813072
+acc2cb3120716f79b	cat: healing/tess/geom/subd	1793813072
+affecf0689743ce29	cat: subd app+surface ops	1793813072
+abbc74f1628a12b3c	sweep1 adaptive (refire)	1793813298
+ad9fdba50f11440b3	FilletSurfaces gaps (refire)	1793813298
+aee426d2e82fc7fbe	portability audit (MSVC/macOS)	1793813308
