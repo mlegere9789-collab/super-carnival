@@ -225,7 +225,7 @@ Copying a library by hand doesn't scale past one machine. `Window > Plug-in
 Marketplace` (or the `PluginMarketplace`/`PluginMarketplaceIndex`/
 `PluginMarketplaceList`/`PluginMarketplaceInstall`/`PluginMarketplaceInstallAll`/
 `PluginMarketplaceUninstall`/`PluginMarketplaceUpdateAll`/`PluginMarketplaceUninstallAll`/
-`PluginMarketplaceVerify`/`PluginMarketplaceVerifyAll` commands) loads a JSON
+`PluginMarketplaceVerify`/`PluginMarketplaceVerifyAll`/`PluginMarketplaceRegistry` commands) loads a JSON
 **plug-in index** - a list of plug-ins with a name, version, author,
 description and where to get the library from - from a local file or an
 `http(s)://` URL, and installs any entry straight into `<config>/plugins`

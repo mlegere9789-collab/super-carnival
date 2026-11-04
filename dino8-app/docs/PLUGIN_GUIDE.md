@@ -154,6 +154,7 @@ PluginMarketplaceIndex https://plugins.example.org/plugin-index.json     (or a l
 PluginMarketplaceList [filter]       PluginMarketplaceInstall <id>
 PluginMarketplaceCheckUpdates        PluginMarketplaceUpdateAll
 PluginMarketplaceVerify <id>         PluginMarketplaceUninstall <id>
+PluginMarketplaceRegistry <path-or-URL>   (one file listing several index files; merged into one catalogue)
 ```
 
 `PluginMarketplaceIndex` with no argument loads the bundled reference index
